@@ -66,6 +66,8 @@ class ActionDeterminer:
 You are an AI assistant that ONLY determines the appropriate action to take based on user input.
 
 IMPORTANT: You MUST respond ONLY with a valid JSON object and nothing else. Do not generate any text outside the JSON structure.
+Do NOT include any comments in the JSON. Do NOT use JavaScript-style comments like // or /* */.
+The JSON must be parseable by Python's json.loads() function.
 
 Available actions:
 1. generate_text - Generate text based on a prompt (REST API)
@@ -110,7 +112,8 @@ Respond ONLY with a JSON object with the following structure:
     "action": "action_name",
     "service_type": "rest" or "graphql",
     "parameters": {
-        // Action-specific parameters
+        "param1": "value1",
+        "param2": "value2"
     },
     "reasoning": "Brief explanation of why you chose this action"
 }
@@ -165,6 +168,30 @@ Respond ONLY with a JSON object with the following structure:
                     response_data = response.json()
                     response_content = response_data.get("message", {}).get("content", "")
                     self.logger.debug("Received response from Ollama", trace_id=trace_id, extra_data={"response": response_content[:200] + "..." if len(response_content) > 200 else response_content})
+
+                    # Special handling for Phi model which often returns JSON with comments
+                    if "//" in response_content or "/*" in response_content:
+                        self.logger.info("Detected comments in JSON response, applying special handling for Phi model", trace_id=trace_id)
+
+                        # Extract action and service_type using regex
+                        action_match = re.search(r'"action"\s*:\s*"([^"]+)"', response_content)
+                        service_match = re.search(r'"service_type"\s*:\s*"([^"]+)"', response_content)
+                        reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', response_content)
+
+                        if action_match and service_match:
+                            action = action_match.group(1)
+                            service_type = service_match.group(1)
+                            reasoning = reasoning_match.group(1) if reasoning_match else "No reasoning provided"
+
+                            self.logger.info(f"Extracted action: {action}, service: {service_type} using regex", trace_id=trace_id)
+
+                            # Create a valid JSON response
+                            response_content = json.dumps({
+                                "action": action,
+                                "service_type": service_type,
+                                "parameters": {},
+                                "reasoning": reasoning
+                            })
                 else:
                     # Log the error and fall back to rule-based determination
                     self.logger.error(f"Error calling Ollama API: {response.status_code} - {response.text}", trace_id=trace_id)
@@ -192,7 +219,48 @@ Respond ONLY with a JSON object with the following structure:
                 json_match = re.search(r'\{[\s\S]*\}', response_content)
                 if json_match:
                     json_str = json_match.group(0)
-                    result = json.loads(json_str)
+
+                    # Clean up the JSON string by removing comments and fixing common issues
+                    # Remove JavaScript-style comments
+                    json_str = re.sub(r'//.*?\n', '\n', json_str)  # Remove single-line comments
+                    json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)  # Remove multi-line comments
+
+                    # Remove trailing commas in objects and arrays
+                    json_str = re.sub(r',\s*}', '}', json_str)
+                    json_str = re.sub(r',\s*\]', ']', json_str)
+
+                    # Log the cleaned JSON for debugging
+                    self.logger.debug(f"Cleaned JSON: {json_str}", trace_id=trace_id)
+
+                    try:
+                        result = json.loads(json_str)
+                    except json.JSONDecodeError as e:
+                        self.logger.error(f"Error parsing cleaned JSON: {e}", trace_id=trace_id, extra_data={"cleaned_json": json_str})
+
+                        # Try a more aggressive approach - extract just the key parts we need
+                        action_match = re.search(r'"action"\s*:\s*"([^"]+)"', json_str)
+                        service_match = re.search(r'"service_type"\s*:\s*"([^"]+)"', json_str)
+                        reasoning_match = re.search(r'"reasoning"\s*:\s*"([^"]+)"', json_str)
+
+                        if action_match and service_match:
+                            action = action_match.group(1)
+                            service_type = service_match.group(1)
+                            reasoning = reasoning_match.group(1) if reasoning_match else "No reasoning provided"
+
+                            self.logger.info(f"Extracted action: {action}, service: {service_type} using regex", trace_id=trace_id)
+                            self.logger.info(f"Extracted reasoning: {reasoning}", trace_id=trace_id)
+
+                            # Create a minimal valid result
+                            result = {
+                                "action": action,
+                                "service_type": service_type,
+                                "parameters": {},
+                                "reasoning": reasoning
+                            }
+                        else:
+                            # If we can't extract the key parts, fall back
+                            self.logger.warning(f"Could not extract action and service_type using regex", trace_id=trace_id)
+                            return self._fallback_determination(input_text, trace_id)
                 else:
                     # Fallback if no JSON is found
                     self.logger.warning(f"No JSON found in OpenAI response", trace_id=trace_id, extra_data={"response": response_content})

@@ -248,7 +248,19 @@ async def ai_request(
                         error_details = result.get("details", "")
                         error_msg = f"Server error: {error_message}\nDetails: {error_details}"
                         logger.error(f"[{request_id}] {error_msg}")
-                        return generate_response_html("Error", error_msg)
+
+                        # Log the full response for debugging
+                        logger.error(f"[{request_id}] Full response: {json.dumps(result)}")
+
+                        # Create a more user-friendly error message
+                        if "Failed to connect to REST API" in error_message:
+                            error_display = "Could not connect to the AI service. Please try again later."
+                        elif "timed out" in error_message.lower():
+                            error_display = "The request took too long to process. Please try again with a simpler request."
+                        else:
+                            error_display = f"Error: {error_message}\n\nDetails: {error_details}"
+
+                        return generate_response_html("Error", error_display)
 
                     # Add information about the AI determination
                     determined_action = result.get("determined_action")
@@ -280,7 +292,9 @@ async def ai_request(
                 logger.error(f"[{request_id}] {error_msg}")
                 return generate_response_html("Error", f"Failed to process AI request: {error_text} (Status code: {response.status_code})")
     except Exception as e:
-        return generate_response_html("Error", f"Error processing AI request: {str(e)}")
+        error_msg = f"Error processing AI request: {str(e)}"
+        logger.error(f"Unhandled exception in ai_request: {str(e)}\n{traceback.format_exc()}")
+        return generate_response_html("Error", error_msg)
 
 
 @app.post("/send-message", response_class=HTMLResponse)

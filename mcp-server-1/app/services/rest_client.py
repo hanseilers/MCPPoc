@@ -1,8 +1,14 @@
 import os
 import httpx
+import logging
+import traceback
+import json
 from typing import Dict, Any, Optional, List
 
 from ..models import GenerateTextRequest
+
+# Configure logging
+logger = logging.getLogger("rest-client")
 
 
 class RestApiClient:
@@ -11,10 +17,13 @@ class RestApiClient:
 
     async def generate_text(self, prompt: str, max_tokens: int = 100) -> Dict[str, Any]:
         """Call the REST API to generate text."""
+        request_id = os.environ.get("TRACE_ID", "unknown")
         # Use a longer timeout for LLM processing
+        logger.info(f"[{request_id}] Generating text with prompt: '{prompt[:50]}...'" if len(prompt) > 50 else f"[{request_id}] Generating text with prompt: '{prompt}'")
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
-                print(f"Sending request to {self.base_url}/api/generate with prompt: {prompt[:50]}..." if len(prompt) > 50 else f"Sending request to {self.base_url}/api/generate with prompt: {prompt}")
+                logger.info(f"[{request_id}] Sending request to {self.base_url}/api/generate with max_tokens: {max_tokens}")
                 response = await client.post(
                     f"{self.base_url}/api/generate",
                     json={
@@ -22,37 +31,44 @@ class RestApiClient:
                         "max_tokens": max_tokens
                     }
                 )
-                print(f"Received response with status code: {response.status_code}")
+                logger.info(f"[{request_id}] Received response with status code: {response.status_code}")
 
                 if response.status_code == 200:
-                    result = response.json()
-                    print(f"Response content: {result}")
-                    return result
+                    try:
+                        result = response.json()
+                        logger.info(f"[{request_id}] Successfully generated text with model: {result.get('model_used', 'unknown')}")
+                        return result
+                    except json.JSONDecodeError as e:
+                        error_msg = f"Failed to parse JSON response: {str(e)}"
+                        logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}\n{traceback.format_exc()}")
+                        return {
+                            "error": "Invalid response from REST API",
+                            "details": error_msg
+                        }
                 else:
                     error_msg = f"API request failed with status {response.status_code}"
-                    print(f"Error: {error_msg}")
-                    print(f"Response text: {response.text}")
+                    logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}")
                     return {
                         "error": error_msg,
                         "details": response.text
                     }
             except httpx.TimeoutException as e:
-                error_msg = f"Request timed out: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Request timed out after 120 seconds: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "error": "REST API request timed out",
                     "details": error_msg
                 }
             except httpx.ConnectError as e:
-                error_msg = f"Connection error: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Connection error to {self.base_url}: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "error": "Failed to connect to REST API",
                     "details": error_msg
                 }
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
-                print(f"Error: {error_msg}")
+                logger.error(f"[{request_id}] {error_msg}\n{traceback.format_exc()}")
                 return {
                     "error": "Failed to connect to REST API",
                     "details": error_msg
@@ -60,9 +76,12 @@ class RestApiClient:
 
     async def summarize_text(self, text: str, max_length: int = 100) -> Dict[str, Any]:
         """Call the REST API to summarize text."""
+        request_id = os.environ.get("TRACE_ID", "unknown")
+        logger.info(f"[{request_id}] Summarizing text of length {len(text)} with max_length: {max_length}")
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
-                print(f"Sending request to {self.base_url}/api/summarize with text length: {len(text)}")
+                logger.info(f"[{request_id}] Sending request to {self.base_url}/api/summarize")
                 response = await client.post(
                     f"{self.base_url}/api/summarize",
                     json={
@@ -70,37 +89,44 @@ class RestApiClient:
                         "max_length": max_length
                     }
                 )
-                print(f"Received response with status code: {response.status_code}")
+                logger.info(f"[{request_id}] Received response with status code: {response.status_code}")
 
                 if response.status_code == 200:
-                    result = response.json()
-                    print(f"Response content: {result}")
-                    return result
+                    try:
+                        result = response.json()
+                        logger.info(f"[{request_id}] Successfully summarized text with model: {result.get('model_used', 'unknown')}")
+                        return result
+                    except json.JSONDecodeError as e:
+                        error_msg = f"Failed to parse JSON response: {str(e)}"
+                        logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}\n{traceback.format_exc()}")
+                        return {
+                            "error": "Invalid response from REST API",
+                            "details": error_msg
+                        }
                 else:
                     error_msg = f"API request failed with status {response.status_code}"
-                    print(f"Error: {error_msg}")
-                    print(f"Response text: {response.text}")
+                    logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}")
                     return {
                         "error": error_msg,
                         "details": response.text
                     }
             except httpx.TimeoutException as e:
-                error_msg = f"Request timed out: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Request timed out after 120 seconds: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "error": "REST API request timed out",
                     "details": error_msg
                 }
             except httpx.ConnectError as e:
-                error_msg = f"Connection error: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Connection error to {self.base_url}: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "error": "Failed to connect to REST API",
                     "details": error_msg
                 }
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
-                print(f"Error: {error_msg}")
+                logger.error(f"[{request_id}] {error_msg}\n{traceback.format_exc()}")
                 return {
                     "error": "Failed to connect to REST API",
                     "details": error_msg
@@ -108,9 +134,12 @@ class RestApiClient:
 
     async def analyze_data(self, query: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Call the REST API to analyze data."""
+        request_id = os.environ.get("TRACE_ID", "unknown")
+        logger.info(f"[{request_id}] Analyzing data with query: '{query[:50]}...'" if len(query) > 50 else f"[{request_id}] Analyzing data with query: '{query}'")
+
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
-                print(f"Sending request to {self.base_url}/api/analyze with query: {query}")
+                logger.info(f"[{request_id}] Sending request to {self.base_url}/api/analyze")
                 response = await client.post(
                     f"{self.base_url}/api/analyze",
                     json={
@@ -118,37 +147,44 @@ class RestApiClient:
                         "data": data
                     }
                 )
-                print(f"Received response with status code: {response.status_code}")
+                logger.info(f"[{request_id}] Received response with status code: {response.status_code}")
 
                 if response.status_code == 200:
-                    result = response.json()
-                    print(f"Response content: {result}")
-                    return result
+                    try:
+                        result = response.json()
+                        logger.info(f"[{request_id}] Successfully analyzed data with model: {result.get('model_used', 'unknown')}")
+                        return result
+                    except json.JSONDecodeError as e:
+                        error_msg = f"Failed to parse JSON response: {str(e)}"
+                        logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}\n{traceback.format_exc()}")
+                        return {
+                            "error": "Invalid response from REST API",
+                            "details": error_msg
+                        }
                 else:
                     error_msg = f"API request failed with status {response.status_code}"
-                    print(f"Error: {error_msg}")
-                    print(f"Response text: {response.text}")
+                    logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}")
                     return {
                         "error": error_msg,
                         "details": response.text
                     }
             except httpx.TimeoutException as e:
-                error_msg = f"Request timed out: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Request timed out after 120 seconds: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "error": "REST API request timed out",
                     "details": error_msg
                 }
             except httpx.ConnectError as e:
-                error_msg = f"Connection error: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Connection error to {self.base_url}: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "error": "Failed to connect to REST API",
                     "details": error_msg
                 }
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
-                print(f"Error: {error_msg}")
+                logger.error(f"[{request_id}] {error_msg}\n{traceback.format_exc()}")
                 return {
                     "error": "Failed to connect to REST API",
                     "details": error_msg

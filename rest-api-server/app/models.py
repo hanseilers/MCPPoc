@@ -46,7 +46,7 @@ class ServerStatus(BaseModel):
 
 
 # Mock models for demonstration
-MOCK_MODELS = ["gpt-3.5-turbo", "gpt-4", "claude-2", "llama-2"]
+MOCK_MODELS = ["gpt-3.5-turbo", "gpt-4", "claude-2", "llama2"]
 
 
 def generate_mock_text(prompt: str, max_tokens: int = 100) -> GenerateResponse:

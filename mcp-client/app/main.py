@@ -1,12 +1,26 @@
 import os
 import httpx
+import logging
+import uuid
+import traceback
+import json
 from fastapi import FastAPI, HTTPException, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from typing import Dict, Any, List, Optional
-import json
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(os.path.join(os.getenv("LOG_DIR", "./logs"), "mcp-client.log"))
+    ]
+)
+logger = logging.getLogger("mcp-client")
 
 from .services.registry_client import RegistryClient
 
@@ -170,54 +184,78 @@ async def ai_request(
     user_input: str = Form(...)
 ):
     """Send an AI-powered request that automatically determines the action."""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[{request_id}] Received AI request with input: '{user_input[:50]}...'" if len(user_input) > 50 else f"[{request_id}] Received AI request with input: '{user_input}'")
+
     try:
         # Get MCP Server 1 (which has the action determiner)
+        logger.info(f"[{request_id}] Retrieving MCP servers from registry")
         mcp_servers = await registry_client.get_services_by_type("mcp")
         mcp_server_1 = next((s for s in mcp_servers if "REST" in s.get("name", "")), None)
+        logger.info(f"[{request_id}] Found MCP servers: {len(mcp_servers)}, Selected server: {mcp_server_1['name'] if mcp_server_1 else 'None'}")
 
         if not mcp_server_1:
-            return generate_response_html("Error", "MCP Server 1 not found.")
+            error_msg = "MCP Server 1 not found."
+            logger.error(f"[{request_id}] {error_msg}")
+            return generate_response_html("Error", error_msg)
 
         server_url = mcp_server_1.get("url")
         if not server_url:
-            return generate_response_html("Error", "Server URL not found.")
+            error_msg = "Server URL not found."
+            logger.error(f"[{request_id}] {error_msg}")
+            return generate_response_html("Error", error_msg)
 
         # Prepare message content with just the user input
         content = {"input": user_input}
+        logger.info(f"[{request_id}] Sending request to MCP server at {server_url}")
 
         # Send message to MCP Server 1 for AI action determination
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:
+                logger.info(f"[{request_id}] Sending POST request to {server_url}/mcp/message")
                 response = await client.post(
                     f"{server_url}/mcp/message",
                     json={
-                        "message_id": "client-ai-request",
+                        "message_id": f"client-ai-request-{request_id}",
                         "source_id": "mcp-client",
                         "target_id": mcp_server_1.get("id"),
                         "content": content,
                         "timestamp": "2023-01-01T00:00:00"  # Placeholder
                     }
                 )
-            except httpx.TimeoutException:
-                return generate_response_html("Error", "Request timed out. The server took too long to respond.")
-            except httpx.ConnectError:
-                return generate_response_html("Error", "Connection error. Could not connect to the server.")
+                logger.info(f"[{request_id}] Received response with status code: {response.status_code}")
+            except httpx.TimeoutException as e:
+                error_msg = "Request timed out. The server took too long to respond."
+                logger.error(f"[{request_id}] {error_msg}: {str(e)}")
+                return generate_response_html("Error", error_msg)
+            except httpx.ConnectError as e:
+                error_msg = "Connection error. Could not connect to the server."
+                logger.error(f"[{request_id}] {error_msg}: {str(e)}")
+                return generate_response_html("Error", error_msg)
             except Exception as e:
-                return generate_response_html("Error", f"Error sending request: {str(e)}")
+                error_msg = f"Error sending request: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}\n{traceback.format_exc()}")
+                return generate_response_html("Error", error_msg)
 
             if response.status_code == 200:
                 try:
                     result = response.json()
+                    logger.info(f"[{request_id}] Successfully parsed JSON response")
 
                     # Check if there's an error in the response
                     if "error" in result:
                         error_message = result.get("error", "Unknown error")
                         error_details = result.get("details", "")
-                        return generate_response_html("Error", f"Server error: {error_message}\nDetails: {error_details}")
+                        error_msg = f"Server error: {error_message}\nDetails: {error_details}"
+                        logger.error(f"[{request_id}] {error_msg}")
+                        return generate_response_html("Error", error_msg)
 
                     # Add information about the AI determination
                     determined_action = result.get("determined_action")
                     service_type = result.get("service_type")
+                    trace_id = result.get("trace_id")
+
+                    logger.info(f"[{request_id}] Request processed successfully. Action: {determined_action}, Service: {service_type}, Trace ID: {trace_id}")
 
                     if determined_action and service_type:
                         result["ai_explanation"] = f"AI determined this was a '{determined_action}' request and routed it to the {service_type.upper()} service."
@@ -225,16 +263,21 @@ async def ai_request(
                         result["ai_explanation"] = f"AI determined this was a '{determined_action}' request."
 
                     return generate_response_html("AI Request Processed", json.dumps(result, indent=2))
-                except json.JSONDecodeError:
-                    return generate_response_html("Error", f"Failed to parse response: {response.text}")
+                except json.JSONDecodeError as e:
+                    error_msg = f"Failed to parse response: {response.text}"
+                    logger.error(f"[{request_id}] {error_msg}: {str(e)}\n{traceback.format_exc()}")
+                    return generate_response_html("Error", error_msg)
             else:
                 error_text = response.text
                 try:
                     error_json = response.json()
                     if isinstance(error_json, dict) and "detail" in error_json:
                         error_text = error_json["detail"]
-                except (json.JSONDecodeError, ValueError):
-                    pass
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.error(f"[{request_id}] Failed to parse error response: {str(e)}")
+
+                error_msg = f"Failed to process AI request: {error_text} (Status code: {response.status_code})"
+                logger.error(f"[{request_id}] {error_msg}")
                 return generate_response_html("Error", f"Failed to process AI request: {error_text} (Status code: {response.status_code})")
     except Exception as e:
         return generate_response_html("Error", f"Error processing AI request: {str(e)}")

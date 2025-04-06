@@ -13,7 +13,9 @@ logger = logging.getLogger("rest-client")
 
 class RestApiClient:
     def __init__(self, base_url: Optional[str] = None):
+        # Use the environment variable or default to localhost for testing
         self.base_url = base_url or os.getenv("REST_API_URL", "http://rest-api-server:8000")
+        logger.info(f"Initializing RestApiClient with base_url: {self.base_url}")
 
     async def generate_text(self, prompt: str, max_tokens: int = 100) -> Dict[str, Any]:
         """Call the REST API to generate text."""
@@ -73,6 +75,32 @@ class RestApiClient:
             except httpx.ConnectError as e:
                 error_msg = f"Connection error to {self.base_url}: {str(e)}"
                 logger.error(f"[{request_id}] {error_msg}")
+
+                # Try with an alternative URL (localhost) if the original URL fails
+                if "rest-api-server" in self.base_url:
+                    alt_url = "http://localhost:8001"
+                    logger.info(f"[{request_id}] Trying alternative URL: {alt_url}")
+                    try:
+                        async with httpx.AsyncClient(timeout=120.0) as alt_client:
+                            alt_response = await alt_client.post(
+                                f"{alt_url}/api/generate",
+                                json={
+                                    "prompt": prompt,
+                                    "max_tokens": max_tokens
+                                }
+                            )
+                            logger.info(f"[{request_id}] Alternative URL response: {alt_response.status_code}")
+
+                            if alt_response.status_code == 200:
+                                try:
+                                    result = alt_response.json()
+                                    logger.info(f"[{request_id}] Successfully generated text with alternative URL")
+                                    return result
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"[{request_id}] Failed to parse JSON from alternative URL: {str(e)}")
+                    except Exception as alt_e:
+                        logger.error(f"[{request_id}] Alternative URL also failed: {str(alt_e)}")
+
                 return {
                     "error": "Failed to connect to REST API",
                     "details": error_msg

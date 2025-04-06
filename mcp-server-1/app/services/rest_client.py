@@ -192,35 +192,46 @@ class RestApiClient:
 
     async def get_status(self) -> Dict[str, Any]:
         """Get the status of the REST API server."""
+        request_id = os.environ.get("TRACE_ID", "unknown")
+        logger.info(f"[{request_id}] Checking status of REST API at {self.base_url}/api/status")
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
-                print(f"Checking status of REST API at {self.base_url}/api/status")
                 response = await client.get(f"{self.base_url}/api/status")
-                print(f"Received status response with code: {response.status_code}")
+                logger.info(f"[{request_id}] Received status response with code: {response.status_code}")
 
                 if response.status_code == 200:
-                    result = response.json()
-                    print(f"REST API status: {result}")
-                    return result
+                    try:
+                        result = response.json()
+                        logger.info(f"[{request_id}] REST API status: {result}")
+                        return result
+                    except json.JSONDecodeError as e:
+                        error_msg = f"Failed to parse status JSON response: {str(e)}"
+                        logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}\n{traceback.format_exc()}")
+                        return {
+                            "status": "offline",
+                            "error": "Invalid status response from REST API",
+                            "details": error_msg
+                        }
                 else:
                     error_msg = f"API status request failed with status {response.status_code}"
-                    print(f"Error: {error_msg}")
+                    logger.error(f"[{request_id}] {error_msg}\nResponse text: {response.text}")
                     return {
                         "status": "offline",
                         "error": error_msg,
                         "details": response.text
                     }
             except httpx.TimeoutException as e:
-                error_msg = f"Status request timed out: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Status request timed out after 30 seconds: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "status": "offline",
                     "error": "REST API status request timed out",
                     "details": error_msg
                 }
             except httpx.ConnectError as e:
-                error_msg = f"Status connection error: {str(e)}"
-                print(f"Error: {error_msg}")
+                error_msg = f"Status connection error to {self.base_url}: {str(e)}"
+                logger.error(f"[{request_id}] {error_msg}")
                 return {
                     "status": "offline",
                     "error": "Failed to connect to REST API",
@@ -228,7 +239,7 @@ class RestApiClient:
                 }
             except Exception as e:
                 error_msg = f"Unexpected error in status check: {str(e)}"
-                print(f"Error: {error_msg}")
+                logger.error(f"[{request_id}] {error_msg}\n{traceback.format_exc()}")
                 return {
                     "status": "offline",
                     "error": "Failed to connect to REST API",

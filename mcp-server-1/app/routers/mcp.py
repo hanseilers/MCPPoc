@@ -174,18 +174,24 @@ async def receive_message(
 
             # Check if there's an error in the response
             if "error" in result:
+                error_message = result["error"]
+                error_details = result.get("details", "")
                 if COMMON_AVAILABLE:
-                    logger.error(f"Error generating text", trace_id=trace_id, extra_data={
-                        "error": result["error"],
-                        "details": result.get("details", "")
+                    logger.error(f"Error generating text: {error_message}", trace_id=trace_id, extra_data={
+                        "error": error_message,
+                        "details": error_details,
+                        "base_url": rest_client.base_url,
+                        "prompt": prompt[:100] + "..." if len(prompt) > 100 else prompt
                     })
                 return {
                     "message_id": message.message_id,
                     "response": {
-                        "text": f"Error: {result['error']}",
+                        "text": f"Error: {error_message}",
                         "confidence": 0.0,
                         "model_used": "error"
                     },
+                    "error": error_message,
+                    "details": error_details,
                     "determined_action": action if "input" in message.content else None,
                     "trace_id": trace_id
                 }
@@ -214,18 +220,24 @@ async def receive_message(
 
             # Check if there's an error in the response
             if "error" in result:
+                error_message = result["error"]
+                error_details = result.get("details", "")
                 if COMMON_AVAILABLE:
-                    logger.error(f"Error summarizing text", trace_id=trace_id, extra_data={
-                        "error": result["error"],
-                        "details": result.get("details", "")
+                    logger.error(f"Error summarizing text: {error_message}", trace_id=trace_id, extra_data={
+                        "error": error_message,
+                        "details": error_details,
+                        "base_url": rest_client.base_url,
+                        "text_length": len(text)
                     })
                 return {
                     "message_id": message.message_id,
                     "response": {
-                        "summary": f"Error: {result['error']}",
+                        "summary": f"Error: {error_message}",
                         "reduction_percentage": 0.0,
                         "model_used": "error"
                     },
+                    "error": error_message,
+                    "details": error_details,
                     "determined_action": action if "input" in message.content else None,
                     "trace_id": trace_id
                 }
@@ -254,18 +266,24 @@ async def receive_message(
 
             # Check if there's an error in the response
             if "error" in result:
+                error_message = result["error"]
+                error_details = result.get("details", "")
                 if COMMON_AVAILABLE:
-                    logger.error(f"Error analyzing data", trace_id=trace_id, extra_data={
-                        "error": result["error"],
-                        "details": result.get("details", "")
+                    logger.error(f"Error analyzing data: {error_message}", trace_id=trace_id, extra_data={
+                        "error": error_message,
+                        "details": error_details,
+                        "base_url": rest_client.base_url,
+                        "query": query[:100] + "..." if len(query) > 100 else query
                     })
                 return {
                     "message_id": message.message_id,
                     "response": {
-                        "analysis": f"Error: {result['error']}",
+                        "analysis": f"Error: {error_message}",
                         "insights": [],
                         "model_used": "error"
                     },
+                    "error": error_message,
+                    "details": error_details,
                     "determined_action": action if "input" in message.content else None,
                     "trace_id": trace_id
                 }

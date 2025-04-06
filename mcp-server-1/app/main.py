@@ -18,7 +18,19 @@ except ImportError:
     COMMON_AVAILABLE = False
     # Simple logging fallback
     import logging
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(os.path.join(os.getenv("LOG_DIR", "./logs"), "mcp-server-1.log"))
+        ]
+    )
+    # Configure REST client logger
+    rest_client_logger = logging.getLogger("rest-client")
+    rest_client_logger.setLevel(logging.DEBUG)
+    rest_client_logger.addHandler(logging.FileHandler(os.path.join(os.getenv("LOG_DIR", "./logs"), "rest-client.log")))
+
     logger = logging.getLogger("mcp-server-1")
 
 app = FastAPI(title="MCP Server 1 (REST)")

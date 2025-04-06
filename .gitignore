@@ -1,0 +1,4 @@
+logs/*.log
+logs/mcp-server-1.log
+logs/mcp-server-1-tracing.log
+logs/mcp-router.log

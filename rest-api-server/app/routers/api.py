@@ -20,6 +20,43 @@ router = APIRouter(prefix="/api", tags=["api"])
 START_TIME = time.time()
 
 
+@router.get("/health")
+async def health_check():
+    """Health check endpoint for the REST API server."""
+    uptime = time.time() - START_TIME
+
+    # Check if Ollama is available
+    ollama_status = "unknown"
+    if os.getenv("USE_LOCAL_LLM", "false").lower() == "true":
+        ollama_api_url = os.getenv("OLLAMA_API_URL", "http://ollama:11434")
+        try:
+            response = requests.get(f"{ollama_api_url}/api/version", timeout=2)
+            if response.status_code == 200:
+                ollama_status = "healthy"
+            else:
+                ollama_status = "unhealthy"
+        except Exception as e:
+            ollama_status = f"error: {str(e)}"
+
+    return {
+        "status": "healthy",
+        "service": "rest-api-server",
+        "uptime": uptime,
+        "ollama": ollama_status
+    }
+
+
+@router.get("/status")
+async def server_status():
+    """Get the current status of the server."""
+    uptime = time.time() - START_TIME
+    return ServerStatus(
+        status="running",
+        uptime=uptime,
+        version="1.0.0"
+    )
+
+
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_text(request: GenerateRequest):
     """Generate text based on the provided prompt."""

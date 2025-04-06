@@ -43,6 +43,25 @@ REGISTRY_URL = os.getenv("REGISTRY_URL", "http://localhost:8000")
 registry_client = RegistryClient(REGISTRY_URL)
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for the MCP client."""
+    try:
+        # Check if registry is available
+        registry_status = await registry_client.get_health()
+        return {
+            "status": "healthy",
+            "registry": registry_status,
+            "service": "mcp-client"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "service": "mcp-client"
+        }
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Simple HTML interface for the MCP client."""

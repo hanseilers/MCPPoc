@@ -25,6 +25,16 @@ async def root():
     return {"message": "MCP Registry Service"}
 
 
+@app.get("/registry/health")
+async def health_check():
+    """Health check endpoint for the registry service."""
+    return {
+        "status": "healthy",
+        "service": "registry-service",
+        "services_count": len(registry_service.services)
+    }
+
+
 @app.post("/registry/services", status_code=201)
 async def register_service(service: ServiceRegistration):
     """Register a new service with the registry."""

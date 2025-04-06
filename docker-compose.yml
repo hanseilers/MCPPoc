@@ -33,7 +33,7 @@ services:
       - REGISTRY_URL=http://registry-service:8000
       - USE_LOCAL_LLM=true
       - OLLAMA_API_URL=http://ollama:11434
-      - OLLAMA_MODEL=llama3:latest
+      - OLLAMA_MODEL=phi:latest
     depends_on:
       - registry-service
       - ollama
@@ -69,7 +69,7 @@ services:
       - LOG_DIR=/app/logs
       - USE_LOCAL_LLM=true
       - OLLAMA_API_URL=http://ollama:11434
-      - OLLAMA_MODEL=llama3:latest
+      - OLLAMA_MODEL=phi:latest
     volumes:
       - ./logs:/app/logs
     depends_on:

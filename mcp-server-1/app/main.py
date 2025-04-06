@@ -152,7 +152,10 @@ async def register_with_registry():
             if response.status_code == 201:
                 data = response.json()
                 service_id = data.get("id")
+                # Set the server ID in the MCP client
                 mcp_client.set_server_id(service_id)
+                # Set the SERVICE_ID environment variable for other components
+                os.environ["SERVICE_ID"] = service_id
                 if COMMON_AVAILABLE:
                     logger.info(f"Successfully registered with registry", extra_data={"service_id": service_id})
                 else:

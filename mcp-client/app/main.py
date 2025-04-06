@@ -311,9 +311,17 @@ async def ai_request(
                         elif "Server ID not set" in error_message:
                             error_display = "The server is not properly configured. Please try again later."
                         else:
-                            error_display = f"Error: {error_message}\n\nDetails: {error_details}"
+                            error_display = f"Error: {error_message}"
 
-                        return generate_response_html("Error", error_display)
+                        # Include technical details for debugging
+                        technical_details = json.dumps(result, indent=2)
+
+                        return generate_response_html(
+                            status="Error",
+                            message=error_display,
+                            details=technical_details,
+                            trace_id=trace_id or request_id
+                        )
 
                     # Add information about the AI determination
                     determined_action = result.get("determined_action")
@@ -344,11 +352,51 @@ async def ai_request(
                         logger.warning(f"[{request_id}] No determined_action in response")
                         result["ai_explanation"] = "AI processed your request but did not specify the action type."
 
-                    return generate_response_html("AI Request Processed", json.dumps(result, indent=2))
+                    # Extract the response text for display
+                    response_text = ""
+                    if isinstance(response_content, dict) and 'text' in response_content:
+                        response_text = response_content['text']
+                    elif isinstance(response_content, str):
+                        response_text = response_content
+                    else:
+                        response_text = "Response received but no text content found."
+
+                    # Add AI explanation
+                    if determined_action and service_type:
+                        ai_explanation = f"AI determined this was a '{determined_action}' request and routed it to the {service_type.upper()} service."
+                    elif determined_action:
+                        ai_explanation = f"AI determined this was a '{determined_action}' request."
+                    else:
+                        ai_explanation = "AI processed your request but did not specify the action type."
+
+                    # Combine response text and AI explanation
+                    display_text = f"{response_text}\n\n---\n{ai_explanation}"
+
+                    # Include technical details for debugging
+                    technical_details = json.dumps(result, indent=2)
+
+                    return generate_response_html(
+                        status="Success",
+                        message=display_text,
+                        details=technical_details,
+                        trace_id=trace_id or request_id
+                    )
                 except json.JSONDecodeError as e:
-                    error_msg = f"Failed to parse response: {response.text}"
-                    logger.error(f"[{request_id}] {error_msg}: {str(e)}\n{traceback.format_exc()}")
-                    return generate_response_html("Error", error_msg)
+                    error_msg = "The server returned an invalid response format."
+                    logger.error(f"[{request_id}] Failed to parse response: {str(e)}\n{traceback.format_exc()}")
+                    logger.debug(f"[{request_id}] Raw response text: {response.text}")
+
+                    # Try to extract useful information from the raw response
+                    raw_text = response.text
+                    if len(raw_text) > 1000:
+                        raw_text = raw_text[:997] + "..."
+
+                    return generate_response_html(
+                        status="Error",
+                        message=error_msg,
+                        details=f"JSON parsing error: {str(e)}\n\nRaw response:\n{raw_text}",
+                        trace_id=request_id
+                    )
             else:
                 # Non-200 response
                 error_text = response.text
@@ -381,9 +429,21 @@ async def ai_request(
                 elif response.status_code == 503:
                     user_error = "The service is currently unavailable. Please try again later."
                 else:
-                    user_error = f"Failed to process AI request: {error_text} (Status code: {response.status_code})"
+                    user_error = f"Failed to process AI request (Status code: {response.status_code})"
 
-                return generate_response_html("Error", user_error)
+                # Try to parse the error response for details
+                try:
+                    error_details = response.json()
+                    error_details_str = json.dumps(error_details, indent=2)
+                except Exception:
+                    error_details_str = error_text
+
+                return generate_response_html(
+                    status="Error",
+                    message=user_error,
+                    details=error_details_str,
+                    trace_id=request_id
+                )
     except Exception as e:
         error_msg = f"Error processing AI request: {str(e)}"
         logger.error(f"[{request_id}] Unhandled exception in ai_request: {str(e)}\n{traceback.format_exc()}")
@@ -400,9 +460,17 @@ async def ai_request(
         else:
             # Log the full exception for debugging
             logger.debug(f"[{request_id}] Full exception: {repr(e)}")
-            error_display = f"An unexpected error occurred: {str(e)}"
+            error_display = "An unexpected error occurred. Please try again later."
 
-        return generate_response_html("Error", error_display)
+        # Get the full traceback for technical details
+        tb = traceback.format_exc()
+
+        return generate_response_html(
+            status="Error",
+            message=error_display,
+            details=f"Error: {str(e)}\n\nTraceback:\n{tb}",
+            trace_id=request_id
+        )
 
 
 @app.post("/send-message", response_class=HTMLResponse)
@@ -536,8 +604,44 @@ async def direct_api(
         return generate_response_html("Error", f"Error sending API request: {str(e)}")
 
 
-def generate_response_html(status: str, message: str) -> str:
-    """Generate HTML response page."""
+def generate_response_html(status: str, message: str, details: str = None, trace_id: str = None) -> str:
+    """Generate HTML response page with improved formatting."""
+    # Format the message for better readability
+    formatted_message = message
+
+    # If the message is JSON, try to format it nicely
+    if message.startswith('{') and message.endswith('}'):
+        try:
+            data = json.loads(message)
+            # Extract the most important information
+            if isinstance(data, dict):
+                if 'response' in data and isinstance(data['response'], dict) and 'text' in data['response']:
+                    formatted_message = data['response']['text']
+                elif 'text' in data:
+                    formatted_message = data['text']
+                elif 'error' in data:
+                    formatted_message = f"Error: {data['error']}"
+                    if 'details' in data:
+                        formatted_message += f"\n\nDetails: {data['details']}"
+        except json.JSONDecodeError:
+            # Not valid JSON, keep the original message
+            pass
+
+    # Add details section if provided
+    details_section = ""
+    if details:
+        details_section = f"""
+        <h3>Technical Details</h3>
+        <div class="details">{details}</div>
+        """
+
+    # Add trace ID if provided
+    trace_section = ""
+    if trace_id:
+        trace_section = f"""
+        <div class="trace-id">Trace ID: {trace_id}</div>
+        """
+
     return f"""
     <!DOCTYPE html>
     <html>
@@ -545,12 +649,15 @@ def generate_response_html(status: str, message: str) -> str:
         <title>MCP Client - Response</title>
         <style>
             body {{ font-family: Arial, sans-serif; margin: 20px; }}
-            h1, h2 {{ color: #333; }}
+            h1, h2, h3 {{ color: #333; }}
             .container {{ max-width: 800px; margin: 0 auto; }}
             .success {{ color: green; }}
             .error {{ color: red; }}
-            .response {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; white-space: pre-wrap; }}
-            .back-button {{ background-color: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 20px; }}
+            .response {{ background-color: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap; margin-bottom: 20px; font-size: 16px; line-height: 1.5; }}
+            .details {{ background-color: #e9e9e9; padding: 10px; border-radius: 5px; white-space: pre-wrap; font-family: monospace; font-size: 14px; }}
+            .trace-id {{ color: #666; font-size: 12px; margin-top: 10px; }}
+            .back-button {{ background-color: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 20px; border-radius: 4px; }}
+            .retry-button {{ background-color: #2196F3; color: white; padding: 10px 15px; border: none; cursor: pointer; text-decoration: none; display: inline-block; margin-top: 20px; margin-left: 10px; border-radius: 4px; }}
         </style>
     </head>
     <body>
@@ -559,9 +666,13 @@ def generate_response_html(status: str, message: str) -> str:
 
             <h2 class="{'success' if status == 'Success' else 'error'}">{status}</h2>
 
-            <div class="response">{message}</div>
+            <div class="response">{formatted_message}</div>
+
+            {details_section}
+            {trace_section}
 
             <a href="/" class="back-button">Back to Client</a>
+            {'<a href="javascript:history.back()" class="retry-button">Try Again</a>' if status == 'Error' else ''}
         </div>
     </body>
     </html>

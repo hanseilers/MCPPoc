@@ -1,0 +1,4 @@
+2025-04-06 14:53:03,552 - mcp-server-1 - INFO - {"timestamp": "2025-04-06T14:53:03.552258", "service": "mcp-server-1", "trace_id": "f78652bc-a654-46f1-8ce8-0a9d3f43c0da", "message": "Added tracing middleware"}
+2025-04-06 14:53:08,599 - mcp-server-1 - INFO - {"timestamp": "2025-04-06T14:53:08.599950", "service": "mcp-server-1", "trace_id": "d9771d31-04a0-462e-a53e-2d7a42cbf986", "message": "Successfully registered with registry", "data": {"service_id": "683505c7-fd16-4fa8-92a0-3d4aaa44cdeb"}}
+2025-04-06 14:53:08,629 - mcp-server-1 - INFO - {"timestamp": "2025-04-06T14:53:08.629530", "service": "mcp-server-1", "trace_id": "899c9cf0-8caa-4748-b853-eadb5c5328c8", "message": "REST API is available"}
+2025-04-06 14:53:38,677 - mcp-server-1 - INFO - {"timestamp": "2025-04-06T14:53:38.677875", "service": "mcp-server-1", "trace_id": "3c90c386-1a19-43e8-899d-140f8fc82e19", "message": "REST API is available"}

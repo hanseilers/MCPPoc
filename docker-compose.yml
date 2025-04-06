@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  registry-service:
+    build: ./registry-service
+    ports:
+      - "8000:8000"
+    networks:
+      - mcp-network
+    environment:
+      - SERVICE_HOST=registry-service
+      - SERVICE_PORT=8000
+
+  rest-api-server:
+    build: ./rest-api-server
+    ports:
+      - "8001:8000"
+    networks:
+      - mcp-network
+    environment:
+      - SERVICE_HOST=rest-api-server
+      - SERVICE_PORT=8000
+      - REGISTRY_URL=http://registry-service:8000
+    depends_on:
+      - registry-service
+
+  graphql-api-server:
+    build: ./graphql-api-server
+    ports:
+      - "8002:8000"
+    networks:
+      - mcp-network
+    environment:
+      - SERVICE_HOST=graphql-api-server
+      - SERVICE_PORT=8000
+      - REGISTRY_URL=http://registry-service:8000
+    depends_on:
+      - registry-service
+
+  mcp-server-1:
+    build:
+      context: .
+      dockerfile: ./mcp-server-1/Dockerfile
+    ports:
+      - "8003:8000"
+    networks:
+      - mcp-network
+    environment:
+      - SERVICE_HOST=mcp-server-1
+      - SERVICE_PORT=8000
+      - REGISTRY_URL=http://registry-service:8000
+      - REST_API_URL=http://rest-api-server:8000
+      - OPENAI_API_KEY=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
+      - LOG_TO_FILE=true
+      - LOG_DIR=/app/logs
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - registry-service
+      - rest-api-server
+
+  mcp-server-2:
+    build:
+      context: .
+      dockerfile: ./mcp-server-2/Dockerfile
+    ports:
+      - "8004:8000"
+    networks:
+      - mcp-network
+    environment:
+      - SERVICE_HOST=mcp-server-2
+      - SERVICE_PORT=8000
+      - REGISTRY_URL=http://registry-service:8000
+      - GRAPHQL_API_URL=http://graphql-api-server:8000
+      - LOG_TO_FILE=true
+      - LOG_DIR=/app/logs
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - registry-service
+      - graphql-api-server
+
+  mcp-client:
+    build: ./mcp-client
+    ports:
+      - "8005:8000"
+    networks:
+      - mcp-network
+    environment:
+      - SERVICE_HOST=mcp-client
+      - SERVICE_PORT=8000
+      - REGISTRY_URL=http://registry-service:8000
+    depends_on:
+      - registry-service
+      - mcp-server-1
+      - mcp-server-2
+
+networks:
+  mcp-network:
+    driver: bridge

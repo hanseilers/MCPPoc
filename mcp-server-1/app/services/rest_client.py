@@ -20,6 +20,17 @@ class RestApiClient:
         request_id = os.environ.get("TRACE_ID", "unknown")
         # Use a longer timeout for LLM processing
         logger.info(f"[{request_id}] Generating text with prompt: '{prompt[:50]}...'" if len(prompt) > 50 else f"[{request_id}] Generating text with prompt: '{prompt}'")
+        logger.info(f"[{request_id}] REST API URL: {self.base_url}")
+
+        # First, try to check if the REST API is available
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            try:
+                # Try to connect to the REST API server
+                logger.info(f"[{request_id}] Testing connection to {self.base_url}")
+                test_response = await client.get(f"{self.base_url}/api/generate")
+                logger.info(f"[{request_id}] Test connection response: {test_response.status_code}")
+            except Exception as e:
+                logger.error(f"[{request_id}] Test connection failed: {str(e)}")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             try:

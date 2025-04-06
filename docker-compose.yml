@@ -1,6 +1,16 @@
 version: '3.8'
 
 services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - mcp-network
+    # No custom command - use the default entrypoint
+    # No healthcheck needed
   registry-service:
     build: ./registry-service
     ports:
@@ -21,8 +31,12 @@ services:
       - SERVICE_HOST=rest-api-server
       - SERVICE_PORT=8000
       - REGISTRY_URL=http://registry-service:8000
+      - USE_LOCAL_LLM=true
+      - OLLAMA_API_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3:latest
     depends_on:
       - registry-service
+      - ollama
 
   graphql-api-server:
     build: ./graphql-api-server
@@ -53,11 +67,15 @@ services:
       - OPENAI_API_KEY=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
       - LOG_TO_FILE=true
       - LOG_DIR=/app/logs
+      - USE_LOCAL_LLM=true
+      - OLLAMA_API_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3:latest
     volumes:
       - ./logs:/app/logs
     depends_on:
       - registry-service
       - rest-api-server
+      - ollama
 
   mcp-server-2:
     build:
@@ -97,4 +115,6 @@ services:
 
 networks:
   mcp-network:
-    driver: bridge
+
+volumes:
+  ollama-data:

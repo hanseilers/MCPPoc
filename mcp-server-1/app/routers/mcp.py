@@ -2,12 +2,20 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 import time
 import json
 import uuid
+import os
+import httpx
 from typing import Dict, Any, Optional
 
 from ..models import MCPMessage, GenerateTextRequest
 from ..services.rest_client import RestApiClient
 from ..services.mcp_client import MCPClient
 from ..services.action_determiner import ActionDeterminer
+
+# Import OpenAI for direct testing
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 # Import the logger if available
 try:
@@ -164,12 +172,30 @@ async def receive_message(
             if COMMON_AVAILABLE:
                 logger.info(f"Text generation completed", trace_id=trace_id)
 
-            return {
-                "message_id": message.message_id,
-                "response": result,
-                "determined_action": action if "input" in message.content else None,
-                "trace_id": trace_id
-            }
+            # Check if there's an error in the response
+            if "error" in result:
+                if COMMON_AVAILABLE:
+                    logger.error(f"Error generating text", trace_id=trace_id, extra_data={
+                        "error": result["error"],
+                        "details": result.get("details", "")
+                    })
+                return {
+                    "message_id": message.message_id,
+                    "response": {
+                        "text": f"Error: {result['error']}",
+                        "confidence": 0.0,
+                        "model_used": "error"
+                    },
+                    "determined_action": action if "input" in message.content else None,
+                    "trace_id": trace_id
+                }
+            else:
+                return {
+                    "message_id": message.message_id,
+                    "response": result,
+                    "determined_action": action if "input" in message.content else None,
+                    "trace_id": trace_id
+                }
         elif action == "summarize":
             # Forward to REST API
             text = content.get("text", "")
@@ -186,12 +212,30 @@ async def receive_message(
             if COMMON_AVAILABLE:
                 logger.info(f"Text summarization completed", trace_id=trace_id)
 
-            return {
-                "message_id": message.message_id,
-                "response": result,
-                "determined_action": action if "input" in message.content else None,
-                "trace_id": trace_id
-            }
+            # Check if there's an error in the response
+            if "error" in result:
+                if COMMON_AVAILABLE:
+                    logger.error(f"Error summarizing text", trace_id=trace_id, extra_data={
+                        "error": result["error"],
+                        "details": result.get("details", "")
+                    })
+                return {
+                    "message_id": message.message_id,
+                    "response": {
+                        "summary": f"Error: {result['error']}",
+                        "reduction_percentage": 0.0,
+                        "model_used": "error"
+                    },
+                    "determined_action": action if "input" in message.content else None,
+                    "trace_id": trace_id
+                }
+            else:
+                return {
+                    "message_id": message.message_id,
+                    "response": result,
+                    "determined_action": action if "input" in message.content else None,
+                    "trace_id": trace_id
+                }
         elif action == "analyze_data":
             # Forward to REST API
             query = content.get("query", "")
@@ -208,12 +252,30 @@ async def receive_message(
             if COMMON_AVAILABLE:
                 logger.info(f"Data analysis completed", trace_id=trace_id)
 
-            return {
-                "message_id": message.message_id,
-                "response": result,
-                "determined_action": action if "input" in message.content else None,
-                "trace_id": trace_id
-            }
+            # Check if there's an error in the response
+            if "error" in result:
+                if COMMON_AVAILABLE:
+                    logger.error(f"Error analyzing data", trace_id=trace_id, extra_data={
+                        "error": result["error"],
+                        "details": result.get("details", "")
+                    })
+                return {
+                    "message_id": message.message_id,
+                    "response": {
+                        "analysis": f"Error: {result['error']}",
+                        "insights": [],
+                        "model_used": "error"
+                    },
+                    "determined_action": action if "input" in message.content else None,
+                    "trace_id": trace_id
+                }
+            else:
+                return {
+                    "message_id": message.message_id,
+                    "response": result,
+                    "determined_action": action if "input" in message.content else None,
+                    "trace_id": trace_id
+                }
         elif action == "get_status":
             # Get status from REST API
             if COMMON_AVAILABLE:
@@ -283,3 +345,88 @@ async def get_status(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting status: {str(e)}")
+
+
+@router.get("/llm-status")
+async def check_llm_status():
+    """Check if the LLM is online and functioning."""
+    # Get trace_id for logging
+    trace_id = str(uuid.uuid4())
+
+    # Check if we're using a local LLM
+    use_local_llm = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+
+    if use_local_llm:
+        # Get Ollama configuration
+        ollama_api_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama2")
+
+        if COMMON_AVAILABLE:
+            logger.info(f"Checking Ollama LLM status", trace_id=trace_id, extra_data={
+                "api_url": ollama_api_url,
+                "model": ollama_model
+            })
+
+        try:
+            # Check if Ollama API is accessible
+            response = httpx.get(f"{ollama_api_url}/api/tags", timeout=5.0)
+
+            if response.status_code == 200:
+                # Check if the model is available
+                models = response.json().get("models", [])
+                model_available = any(model.get("name") == ollama_model for model in models)
+
+                if model_available:
+                    return {
+                        "status": "ok",
+                        "llm_type": "ollama",
+                        "model": ollama_model,
+                        "api_url": ollama_api_url
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"Model '{ollama_model}' not found in Ollama",
+                        "available_models": [model.get("name") for model in models]
+                    }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Ollama API returned status code {response.status_code}",
+                    "response": response.text
+                }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error connecting to Ollama API: {str(e)}"
+            }
+    else:
+        # Check OpenAI API
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+
+        if not openai_api_key:
+            return {
+                "status": "error",
+                "message": "OpenAI API key not configured"
+            }
+
+        if COMMON_AVAILABLE:
+            logger.info(f"Checking OpenAI API status", trace_id=trace_id)
+
+        try:
+            # Initialize OpenAI client
+            client = OpenAI(api_key=openai_api_key)
+
+            # Make a simple API call to check if the API is accessible
+            response = client.models.list()
+
+            return {
+                "status": "ok",
+                "llm_type": "openai",
+                "available_models": [model.id for model in response.data[:5]]  # Show first 5 models
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error connecting to OpenAI API: {str(e)}"
+            }

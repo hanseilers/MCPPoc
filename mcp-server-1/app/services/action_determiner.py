@@ -7,6 +7,7 @@ import re
 import os
 import json
 import uuid
+import httpx
 from typing import Dict, Any, Tuple, List, Optional
 from openai import OpenAI
 
@@ -26,17 +27,33 @@ except ImportError:
 
 
 class ActionDeterminer:
-    """Determines the appropriate action based on user input using OpenAI."""
+    """Determines the appropriate action based on user input using OpenAI or Ollama."""
+
+    # Class variable to ensure logger is only created once
+    _logger = None
 
     def __init__(self):
-        # Initialize logger
-        self.logger = get_logger("action-determiner")
+        # Initialize logger only if it doesn't exist yet
+        if ActionDeterminer._logger is None:
+            ActionDeterminer._logger = get_logger("action-determiner")
+        self.logger = ActionDeterminer._logger
+
         self.logger.info("Initializing ActionDeterminer")
 
-        # Initialize OpenAI client
-        api_key = os.getenv("OPENAI_API_KEY")
-        self.client = OpenAI(api_key=api_key)
-        self.model = "gpt-3.5-turbo"  # Using GPT-3.5 Turbo for faster responses
+        # Check if we should use local LLM
+        self.use_local_llm = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+
+        if self.use_local_llm:
+            # Initialize Ollama client
+            self.ollama_api_url = os.getenv("OLLAMA_API_URL", "http://localhost:11434")
+            self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3")
+            self.logger.info(f"Using local LLM: {self.ollama_model} at {self.ollama_api_url}")
+        else:
+            # Initialize OpenAI client
+            api_key = os.getenv("OPENAI_API_KEY")
+            self.client = OpenAI(api_key=api_key)
+            self.model = "gpt-3.5-turbo"  # Using GPT-3.5 Turbo for faster responses
+            self.logger.info(f"Using OpenAI API with model: {self.model}")
 
         # Define capabilities of each service
         self.service_capabilities = {
@@ -46,7 +63,9 @@ class ActionDeterminer:
 
         # Define the system prompt for action determination
         self.system_prompt = """
-You are an AI assistant that determines the appropriate action to take based on user input.
+You are an AI assistant that ONLY determines the appropriate action to take based on user input.
+
+IMPORTANT: You MUST respond ONLY with a valid JSON object and nothing else. Do not generate any text outside the JSON structure.
 
 Available actions:
 1. generate_text - Generate text based on a prompt (REST API)
@@ -59,7 +78,34 @@ Available actions:
 Your task is to determine which action best matches the user's request and which service (REST or GraphQL) should handle it.
 You must also extract the relevant parameters for the action.
 
-Respond in JSON format with the following structure:
+EXAMPLE 1:
+User input: "Make a poem about flowers"
+Your response should be exactly:
+{
+    "action": "generate_text",
+    "service_type": "rest",
+    "parameters": {
+        "prompt": "Make a poem about flowers",
+        "max_tokens": 100
+    },
+    "reasoning": "The user wants to generate a poem, which is a text generation task."
+}
+
+EXAMPLE 2:
+User input: "Translate 'Hello world' to Spanish"
+Your response should be exactly:
+{
+    "action": "translate_text",
+    "service_type": "graphql",
+    "parameters": {
+        "text": "Hello world",
+        "source_language": "en",
+        "target_language": "es"
+    },
+    "reasoning": "The user wants to translate text from English to Spanish."
+}
+
+Respond ONLY with a JSON object with the following structure:
 {
     "action": "action_name",
     "service_type": "rest" or "graphql",
@@ -72,7 +118,7 @@ Respond in JSON format with the following structure:
 
     def determine_action(self, input_text: str, trace_id: Optional[str] = None) -> Tuple[str, Dict[str, Any], str]:
         """
-        Determine the appropriate action based on the input text using OpenAI.
+        Determine the appropriate action based on the input text using OpenAI or Ollama.
 
         Args:
             input_text: The user's input text
@@ -88,22 +134,57 @@ Respond in JSON format with the following structure:
 
         self.logger.info(f"Determining action for input: '{input_text[:50]}...'" if len(input_text) > 50 else f"Determining action for input: '{input_text}'", trace_id=trace_id)
 
+        # Using only the LLM for action determination
+        self.logger.info(f"Using LLM-based determination for input", trace_id=trace_id)
         try:
-            # Call OpenAI API
-            self.logger.debug("Calling OpenAI API", trace_id=trace_id)
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": input_text}
-                ],
-                temperature=0.1,  # Low temperature for more deterministic responses
-                max_tokens=1000
-            )
+            if self.use_local_llm:
+                # Call Ollama API
+                self.logger.debug(f"Calling Ollama API with model {self.ollama_model}", trace_id=trace_id)
 
-            # Extract the response content
-            response_content = response.choices[0].message.content
-            self.logger.debug("Received response from OpenAI", trace_id=trace_id, extra_data={"response": response_content[:200] + "..." if len(response_content) > 200 else response_content})
+                # Prepare the request payload
+                payload = {
+                    "model": self.ollama_model,
+                    "messages": [
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": input_text}
+                    ],
+                    "stream": False,
+                    "temperature": 0.1
+                }
+
+                # Make the API call
+                response = httpx.post(
+                    f"{self.ollama_api_url}/api/chat",
+                    json=payload,
+                    timeout=60.0  # Longer timeout for LLM processing
+                )
+
+                # Check if the request was successful
+                if response.status_code == 200:
+                    # Parse the response
+                    response_data = response.json()
+                    response_content = response_data.get("message", {}).get("content", "")
+                    self.logger.debug("Received response from Ollama", trace_id=trace_id, extra_data={"response": response_content[:200] + "..." if len(response_content) > 200 else response_content})
+                else:
+                    # Log the error and fall back to rule-based determination
+                    self.logger.error(f"Error calling Ollama API: {response.status_code} - {response.text}", trace_id=trace_id)
+                    return self._fallback_determination(input_text, trace_id)
+            else:
+                # Call OpenAI API
+                self.logger.debug("Calling OpenAI API", trace_id=trace_id)
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": self.system_prompt},
+                        {"role": "user", "content": input_text}
+                    ],
+                    temperature=0.1,  # Low temperature for more deterministic responses
+                    max_tokens=1000
+                )
+
+                # Extract the response content
+                response_content = response.choices[0].message.content
+                self.logger.debug("Received response from OpenAI", trace_id=trace_id, extra_data={"response": response_content[:200] + "..." if len(response_content) > 200 else response_content})
 
             # Try to parse the JSON response
             try:
@@ -195,33 +276,9 @@ Respond in JSON format with the following structure:
             return self._fallback_determination(input_text, trace_id)
 
     def _fallback_determination(self, input_text: str, trace_id: Optional[str] = None) -> Tuple[str, Dict[str, Any], str]:
-        """Fallback method for determining action when OpenAI fails."""
+        """Fallback method for determining action when LLM API fails."""
         trace_id = trace_id or str(uuid.uuid4())
-        self.logger.warning("Using fallback action determination", trace_id=trace_id)
-
-        # Simple keyword-based fallback
-        if any(word in input_text.lower() for word in ["translate", "translation", "spanish", "french", "german"]):
-            source_lang, target_lang = self._extract_languages(input_text)
-            text = self._extract_text_for_translation(input_text)
-            return "translate_text", {"text": text, "source_language": source_lang, "target_language": target_lang}, "graphql"
-
-        elif any(word in input_text.lower() for word in ["summarize", "summary", "shorten", "brief"]):
-            return "summarize", {"text": input_text, "max_length": 100}, "rest"
-
-        elif any(word in input_text.lower() for word in ["sentiment", "feeling", "emotion", "positive", "negative"]):
-            return "analyze_sentiment", {"text": input_text}, "graphql"
-
-        elif any(word in input_text.lower() for word in ["classify", "categorize", "category", "type"]):
-            categories = self._extract_categories(input_text)
-            params = {"text": input_text}
-            if categories:
-                params["categories"] = categories
-            return "classify_text", params, "graphql"
-
-        elif any(word in input_text.lower() for word in ["analyze", "analysis", "data", "statistics"]) or "{" in input_text:
-            data = self._extract_json(input_text)
-            query = input_text.split("{")[0].strip() if "{" in input_text else input_text
-            return "analyze_data", {"query": query, "data": data or {}}, "rest"
+        self.logger.warning("Using fallback action determination - defaulting to generate_text", trace_id=trace_id)
 
         # Default to generate_text
         return "generate_text", {"prompt": input_text, "max_tokens": 100}, "rest"

@@ -186,31 +186,56 @@ async def ai_request(
         content = {"input": user_input}
 
         # Send message to MCP Server 1 for AI action determination
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{server_url}/mcp/message",
-                json={
-                    "message_id": "client-ai-request",
-                    "source_id": "mcp-client",
-                    "target_id": mcp_server_1.get("id"),
-                    "content": content,
-                    "timestamp": "2023-01-01T00:00:00"  # Placeholder
-                }
-            )
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                response = await client.post(
+                    f"{server_url}/mcp/message",
+                    json={
+                        "message_id": "client-ai-request",
+                        "source_id": "mcp-client",
+                        "target_id": mcp_server_1.get("id"),
+                        "content": content,
+                        "timestamp": "2023-01-01T00:00:00"  # Placeholder
+                    }
+                )
+            except httpx.TimeoutException:
+                return generate_response_html("Error", "Request timed out. The server took too long to respond.")
+            except httpx.ConnectError:
+                return generate_response_html("Error", "Connection error. Could not connect to the server.")
+            except Exception as e:
+                return generate_response_html("Error", f"Error sending request: {str(e)}")
 
             if response.status_code == 200:
-                result = response.json()
+                try:
+                    result = response.json()
 
-                # Add information about the AI determination
-                determined_action = result.get("determined_action")
-                service_type = result.get("service_type")
+                    # Check if there's an error in the response
+                    if "error" in result:
+                        error_message = result.get("error", "Unknown error")
+                        error_details = result.get("details", "")
+                        return generate_response_html("Error", f"Server error: {error_message}\nDetails: {error_details}")
 
-                if determined_action:
-                    result["ai_explanation"] = f"AI determined this was a '{determined_action}' request and routed it to the {service_type.upper()} service."
+                    # Add information about the AI determination
+                    determined_action = result.get("determined_action")
+                    service_type = result.get("service_type")
 
-                return generate_response_html("AI Request Processed", json.dumps(result, indent=2))
+                    if determined_action and service_type:
+                        result["ai_explanation"] = f"AI determined this was a '{determined_action}' request and routed it to the {service_type.upper()} service."
+                    elif determined_action:
+                        result["ai_explanation"] = f"AI determined this was a '{determined_action}' request."
+
+                    return generate_response_html("AI Request Processed", json.dumps(result, indent=2))
+                except json.JSONDecodeError:
+                    return generate_response_html("Error", f"Failed to parse response: {response.text}")
             else:
-                return generate_response_html("Error", f"Failed to process AI request: {response.text}")
+                error_text = response.text
+                try:
+                    error_json = response.json()
+                    if isinstance(error_json, dict) and "detail" in error_json:
+                        error_text = error_json["detail"]
+                except (json.JSONDecodeError, ValueError):
+                    pass
+                return generate_response_html("Error", f"Failed to process AI request: {error_text} (Status code: {response.status_code})")
     except Exception as e:
         return generate_response_html("Error", f"Error processing AI request: {str(e)}")
 

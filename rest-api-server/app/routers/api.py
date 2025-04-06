@@ -2,6 +2,10 @@ from fastapi import APIRouter, HTTPException
 import time
 import random
 import asyncio
+import os
+import httpx
+import json
+import requests
 
 from ..models import (
     GenerateRequest, GenerateResponse, generate_mock_text,
@@ -20,13 +24,74 @@ START_TIME = time.time()
 async def generate_text(request: GenerateRequest):
     """Generate text based on the provided prompt."""
     try:
-        # Simulate processing time
-        await asyncio.sleep(random.uniform(0.1, 0.5))
+        # Check if we should use local LLM
+        use_local_llm = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+        print(f"USE_LOCAL_LLM: {use_local_llm}")
 
-        # Generate mock response
-        response = generate_mock_text(request.prompt, request.max_tokens)
-        return response
+        if use_local_llm:
+            # Get Ollama configuration
+            ollama_api_url = os.getenv("OLLAMA_API_URL", "http://ollama:11434")
+            ollama_model = os.getenv("OLLAMA_MODEL", "llama2:latest")
+            print(f"OLLAMA_API_URL: {ollama_api_url}")
+            print(f"OLLAMA_MODEL: {ollama_model}")
+
+            # Prepare the request payload
+            # Use a default prompt if the provided prompt is empty
+            prompt = request.prompt if request.prompt else "Write a poem"
+            print(f"Using prompt: {prompt}")
+
+            payload = {
+                "model": ollama_model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "num_predict": request.max_tokens
+                }
+            }
+
+            # Make the API call
+            print(f"Making API call to {ollama_api_url}/api/generate")
+            print(f"Payload: {payload}")
+            try:
+                # Use the requests library instead of httpx
+                response = requests.post(
+                    f"{ollama_api_url}/api/generate",
+                    json=payload,
+                    timeout=60.0  # Longer timeout for LLM processing
+                )
+                print(f"API call completed with status code: {response.status_code}")
+
+                # Check if the request was successful
+                if response.status_code == 200:
+                    # Parse the response
+                    response_data = response.json()
+                    generated_text = response_data.get("response", "")
+                    print(f"Generated text: {generated_text[:100]}..." if len(generated_text) > 100 else f"Generated text: {generated_text}")
+
+                    return GenerateResponse(
+                        text=generated_text,
+                        confidence=0.95,  # Placeholder confidence value
+                        model_used=ollama_model
+                    )
+                else:
+                    # Fall back to mock response if Ollama fails
+                    print(f"Error calling Ollama API: {response.status_code} - {response.text}")
+                    response = generate_mock_text(request.prompt, request.max_tokens)
+                    return response
+            except Exception as e:
+                print(f"Error making API call: {str(e)}")
+                # Fall back to mock response if Ollama fails
+                response = generate_mock_text(request.prompt, request.max_tokens)
+                return response
+        else:
+            # Simulate processing time
+            await asyncio.sleep(random.uniform(0.1, 0.5))
+
+            # Generate mock response
+            response = generate_mock_text(request.prompt, request.max_tokens)
+            return response
     except Exception as e:
+        print(f"Error generating text: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error generating text: {str(e)}")
 
 

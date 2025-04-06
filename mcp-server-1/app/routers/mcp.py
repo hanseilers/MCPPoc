@@ -106,7 +106,7 @@ async def receive_message(
                 mcp_servers = await mcp_client.get_mcp_servers()
                 mcp_server_2 = next((s for s in mcp_servers if "GraphQL" in s.get("name", "")), None)
 
-                if mcp_server_2:
+                if mcp_server_2 and mcp_server_2.get("id"):
                     # Forward to MCP Server 2
                     forward_content = {
                         "action": action,
@@ -135,14 +135,19 @@ async def receive_message(
                         "trace_id": trace_id
                     }
                 else:
+                    error_msg = "GraphQL MCP server not found or server ID not set"
                     if COMMON_AVAILABLE:
-                        logger.error(f"GraphQL MCP server not found", trace_id=trace_id)
+                        logger.error(f"{error_msg}", trace_id=trace_id, extra_data={
+                            "mcp_server_2": mcp_server_2
+                        })
 
-                    return {
-                        "message_id": message.message_id,
-                        "error": "GraphQL MCP server not found",
-                        "trace_id": trace_id
-                    }
+                    # Fall back to REST API instead
+                    if COMMON_AVAILABLE:
+                        logger.warning(f"Falling back to REST API for GraphQL request", trace_id=trace_id)
+
+                    service_type = "rest"
+
+                    # Continue to REST API processing below
 
             # Otherwise, update the content with the determined action and parameters
             content = {

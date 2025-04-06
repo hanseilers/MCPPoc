@@ -257,6 +257,8 @@ async def ai_request(
                             error_display = "Could not connect to the AI service. Please try again later."
                         elif "timed out" in error_message.lower():
                             error_display = "The request took too long to process. Please try again with a simpler request."
+                        elif "Server ID not set" in error_message:
+                            error_display = "The server is not properly configured. Please try again later."
                         else:
                             error_display = f"Error: {error_message}\n\nDetails: {error_details}"
 
@@ -294,7 +296,14 @@ async def ai_request(
     except Exception as e:
         error_msg = f"Error processing AI request: {str(e)}"
         logger.error(f"Unhandled exception in ai_request: {str(e)}\n{traceback.format_exc()}")
-        return generate_response_html("Error", error_msg)
+
+        # Create a more user-friendly error message
+        if "'NoneType' object has no attribute 'get'" in str(e):
+            error_display = "The server is not properly configured. Please try again later."
+        else:
+            error_display = error_msg
+
+        return generate_response_html("Error", error_display)
 
 
 @app.post("/send-message", response_class=HTMLResponse)

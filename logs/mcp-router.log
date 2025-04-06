@@ -1,1 +1,2 @@
 2025-04-06 14:53:03,551 - mcp-router - INFO - {"timestamp": "2025-04-06T14:53:03.550969", "service": "mcp-router", "trace_id": "2f0d8ae9-c1f1-4a3a-9072-ec8d396ad8f0", "message": "MCP Router initialized", "data": {"start_time": 1743951183.5509548}}
+2025-04-06 14:55:45,194 - mcp-router - INFO - {"timestamp": "2025-04-06T14:55:45.194259", "service": "mcp-router", "trace_id": "74c9151e-61d2-4469-9fc1-8b70c767b073", "message": "MCP Router initialized", "data": {"start_time": 1743951345.1942458}}

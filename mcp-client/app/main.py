@@ -166,6 +166,7 @@ def generate_server_options(servers: List[Dict[str, Any]]) -> str:
 
 @app.post("/ai-request", response_class=HTMLResponse)
 async def ai_request(
+    request: Request,
     user_input: str = Form(...)
 ):
     """Send an AI-powered request that automatically determines the action."""

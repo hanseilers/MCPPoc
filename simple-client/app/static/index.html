@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,19 +13,23 @@
             padding: 20px;
             line-height: 1.6;
         }
+
         h1 {
             color: #333;
             border-bottom: 1px solid #ddd;
             padding-bottom: 10px;
         }
+
         .form-group {
             margin-bottom: 15px;
         }
+
         label {
             display: block;
             margin-bottom: 5px;
             font-weight: bold;
         }
+
         textarea {
             width: 100%;
             padding: 8px;
@@ -33,6 +38,7 @@
             height: 100px;
             font-family: inherit;
         }
+
         button {
             background-color: #4CAF50;
             color: white;
@@ -42,13 +48,16 @@
             cursor: pointer;
             font-size: 16px;
         }
+
         button:hover {
             background-color: #45a049;
         }
+
         button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
         }
+
         .response {
             margin-top: 20px;
             padding: 15px;
@@ -58,105 +67,117 @@
             white-space: pre-wrap;
             display: none;
         }
+
         .error {
             color: #d32f2f;
             background-color: #ffebee;
             border-color: #ffcdd2;
         }
+
         .loading {
             display: inline-block;
             width: 20px;
             height: 20px;
-            border: 3px solid rgba(0,0,0,0.3);
+            border: 3px solid rgba(0, 0, 0, 0.3);
             border-radius: 50%;
             border-top-color: #4CAF50;
             animation: spin 1s ease-in-out infinite;
             margin-left: 10px;
             vertical-align: middle;
         }
+
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
+
 <body>
     <h1>Simple MCP Client</h1>
-    
+
     <div class="form-group">
         <label for="prompt">Enter your prompt:</label>
         <textarea id="prompt" placeholder="e.g., Make a poem about spring"></textarea>
     </div>
-    
+
     <button id="submit-btn" onclick="sendRequest()">Send Request</button>
     <span id="loading" class="loading" style="display: none;"></span>
-    
+
     <div id="response" class="response"></div>
-    
+
     <script>
         async function sendRequest() {
             const promptElement = document.getElementById('prompt');
             const submitBtn = document.getElementById('submit-btn');
             const loadingElement = document.getElementById('loading');
             const responseElement = document.getElementById('response');
-            
+
             const prompt = promptElement.value.trim();
             if (!prompt) {
                 alert('Please enter a prompt');
                 return;
             }
-            
+
             // Disable button and show loading
             submitBtn.disabled = true;
             loadingElement.style.display = 'inline-block';
             responseElement.style.display = 'none';
             responseElement.className = 'response';
-            
+
             try {
                 // Create form data
                 const formData = new FormData();
                 formData.append('prompt', prompt);
-                
+
                 // Send request
                 const response = await fetch('/api/send', {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 const data = await response.json();
-                
-                // Display response
+
+                // Always make sure the response element is visible
                 responseElement.style.display = 'block';
-                
+
                 if (data.success) {
                     // Extract the text from the response
                     let displayText = '';
-                    
+
                     if (data.result && data.result.response && data.result.response.text) {
                         displayText = data.result.response.text;
+                    } else if (data.result && data.result.response && data.result.response.error) {
+                        // Handle error in response
+                        responseElement.className = 'response error';
+                        displayText = `Error: ${data.result.response.error}\n\nDetails: ${data.result.response.details || 'No details provided'}`;
                     } else if (data.result && typeof data.result === 'object') {
                         displayText = JSON.stringify(data.result, null, 2);
                     } else {
                         displayText = 'Received response but could not extract text.';
                     }
-                    
+
                     responseElement.textContent = displayText;
                 } else {
                     responseElement.className = 'response error';
                     responseElement.textContent = `Error: ${data.error}\n\nDetails: ${data.details || 'No details provided'}`;
                 }
             } catch (error) {
+                // Make sure the response element is visible
                 responseElement.style.display = 'block';
                 responseElement.className = 'response error';
-                responseElement.textContent = `Error: ${error.message}`;
+                responseElement.textContent = `Error: ${error.message || 'Unknown error occurred'}`;
+                console.error('Error in fetch operation:', error);
             } finally {
                 // Re-enable button and hide loading
                 submitBtn.disabled = false;
                 loadingElement.style.display = 'none';
             }
         }
-        
+
         // Allow pressing Enter in the textarea to submit
-        document.getElementById('prompt').addEventListener('keydown', function(event) {
+        document.getElementById('prompt').addEventListener('keydown', function (event) {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 sendRequest();
@@ -164,4 +185,5 @@
         });
     </script>
 </body>
+
 </html>

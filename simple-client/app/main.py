@@ -18,7 +18,10 @@ app = FastAPI(title="Simple MCP Client")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Configuration
+# Use localhost:8003 when running locally, mcp-server-1:8000 when running in Docker
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server-1:8000")
+# Try alternative URL if the main one fails
+MCP_SERVER_ALT_URL = os.getenv("MCP_SERVER_ALT_URL", "http://localhost:8003")
 SERVICE_ID = os.getenv("SERVICE_ID", "simple-client")
 
 @app.get("/", response_class=HTMLResponse)
@@ -32,7 +35,7 @@ async def send_request(prompt: str = Form(...)):
     """Send a request to the MCP server."""
     request_id = str(uuid.uuid4())
     logger.info(f"[{request_id}] Received request: {prompt}")
-    
+
     try:
         # Prepare the message for the MCP server
         message = {
@@ -42,15 +45,24 @@ async def send_request(prompt: str = Form(...)):
                 "input": prompt
             }
         }
-        
+
         # Send the message to the MCP server
         logger.info(f"[{request_id}] Sending message to MCP server: {MCP_SERVER_URL}/mcp/message")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{MCP_SERVER_URL}/mcp/message",
-                json=message
-            )
-        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{MCP_SERVER_URL}/mcp/message",
+                    json=message
+                )
+        except Exception as e:
+            # Try alternative URL if main URL fails
+            logger.warning(f"[{request_id}] Failed to connect to primary MCP server: {str(e)}. Trying alternative URL.")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{MCP_SERVER_ALT_URL}/mcp/message",
+                    json=message
+                )
+
         # Process the response
         if response.status_code == 200:
             result = response.json()
@@ -69,7 +81,7 @@ async def send_request(prompt: str = Form(...)):
                 "details": error_text,
                 "request_id": request_id
             }
-    
+
     except Exception as e:
         logger.error(f"[{request_id}] Error sending request: {str(e)}")
         return {
@@ -82,9 +94,31 @@ async def send_request(prompt: str = Form(...)):
 @app.get("/health", response_class=JSONResponse)
 async def health_check():
     """Health check endpoint."""
+    # Check MCP server health
+    mcp_server_status = "unknown"
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(f"{MCP_SERVER_URL}/health")
+            if response.status_code == 200:
+                mcp_server_status = "healthy"
+            else:
+                mcp_server_status = "unhealthy"
+    except Exception as e:
+        # Try alternative URL
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get(f"{MCP_SERVER_ALT_URL}/health")
+                if response.status_code == 200:
+                    mcp_server_status = "healthy (via alternative URL)"
+                else:
+                    mcp_server_status = "unhealthy (via alternative URL)"
+        except Exception as alt_e:
+            mcp_server_status = f"error: {str(e)} / {str(alt_e)}"
+
     return {
         "status": "healthy",
-        "service": "simple-client"
+        "service": "simple-client",
+        "mcp_server": mcp_server_status
     }
 
 if __name__ == "__main__":

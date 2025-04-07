@@ -29,7 +29,7 @@ except ImportError:
     def get_logger(name):
         return logging.getLogger(name)
 
-router = APIRouter(prefix="/mcp", tags=["mcp"])
+router = APIRouter(tags=["mcp"])
 
 # Initialize logger
 logger = get_logger("mcp-router")
@@ -50,6 +50,61 @@ def get_mcp_client():
 
 def get_action_determiner():
     return ActionDeterminer()
+
+
+@router.get("/health")
+async def health_check():
+    """Health check endpoint for the MCP server."""
+    import asyncio
+    import os
+
+    # Get uptime
+    uptime = time.time() - START_TIME
+
+    # Check if registry is available
+    registry_status = "unknown"
+    registry_url = os.getenv("REGISTRY_URL", "http://localhost:8000")
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(f"{registry_url}/registry/health")
+            if response.status_code == 200:
+                registry_status = "healthy"
+            else:
+                registry_status = "unhealthy"
+    except Exception as e:
+        registry_status = f"error: {str(e)}"
+
+    # Check if REST API is available
+    rest_api_status = "unknown"
+    rest_api_url = os.getenv("REST_API_URL", "http://rest-api-server:8000")
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(f"{rest_api_url}/api/health")
+            if response.status_code == 200:
+                rest_api_status = "healthy"
+            else:
+                rest_api_status = "unhealthy"
+    except Exception as e:
+        rest_api_status = f"error: {str(e)}"
+
+        # Try alternative URL
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get("http://localhost:8001/api/health")
+                if response.status_code == 200:
+                    rest_api_status = "healthy (via localhost)"
+                else:
+                    rest_api_status = "unhealthy (via localhost)"
+        except Exception as alt_e:
+            rest_api_status = f"error: {str(e)} / {str(alt_e)}"
+
+    return {
+        "status": "healthy",
+        "service": "mcp-server-1",
+        "uptime": uptime,
+        "registry": registry_status,
+        "rest_api": rest_api_status
+    }
 
 
 @router.post("/message")

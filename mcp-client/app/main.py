@@ -457,10 +457,18 @@ async def ai_request(
             error_display = "The request timed out. Please try again later."
         elif "JSONDecodeError" in str(e) or "Expecting value" in str(e):
             error_display = "The server returned an invalid response. Please try again later."
+        elif str(e) == "":
+            error_display = "An error occurred while processing your request. Please try again."
+            # Try to get more information from the traceback
+            tb_str = traceback.format_exc()
+            if "AttributeError: 'NoneType'" in tb_str:
+                error_display = "The server returned an empty response. Please try again later."
+            elif "KeyError:" in tb_str:
+                error_display = "The server response is missing required information. Please try again later."
         else:
             # Log the full exception for debugging
             logger.debug(f"[{request_id}] Full exception: {repr(e)}")
-            error_display = "An unexpected error occurred. Please try again later."
+            error_display = f"An unexpected error occurred: {str(e) or 'Unknown error'}. Please try again later."
 
         # Get the full traceback for technical details
         tb = traceback.format_exc()
@@ -468,7 +476,7 @@ async def ai_request(
         return generate_response_html(
             status="Error",
             message=error_display,
-            details=f"Error: {str(e)}\n\nTraceback:\n{tb}",
+            details=f"Error: {str(e) or 'Empty error message'}\n\nTraceback:\n{tb}",
             trace_id=request_id
         )
 

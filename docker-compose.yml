@@ -176,6 +176,28 @@ services:
       timeout: 10s
       retries: 3
 
+  simple-client:
+    build: ./simple-client
+    ports:
+      - "8006:8000"
+    networks:
+      mcp-network:
+        aliases:
+          - simple-client
+    environment:
+      - SERVICE_HOST=simple-client
+      - SERVICE_PORT=8000
+      - MCP_SERVER_URL=http://mcp-server-1:8000
+      - SERVICE_ID=simple-client
+    depends_on:
+      mcp-server-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8000/health || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 networks:
   mcp-network:
     driver: bridge

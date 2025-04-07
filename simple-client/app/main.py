@@ -1,0 +1,94 @@
+import os
+import httpx
+import logging
+import uuid
+import json
+from fastapi import FastAPI, Form
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+# Configure basic logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("simple-client")
+
+# Create FastAPI app
+app = FastAPI(title="Simple MCP Client")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Configuration
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server-1:8000")
+SERVICE_ID = os.getenv("SERVICE_ID", "simple-client")
+
+@app.get("/", response_class=HTMLResponse)
+async def index():
+    """Serve the main page."""
+    with open("app/static/index.html", "r") as f:
+        return f.read()
+
+@app.post("/api/send", response_class=JSONResponse)
+async def send_request(prompt: str = Form(...)):
+    """Send a request to the MCP server."""
+    request_id = str(uuid.uuid4())
+    logger.info(f"[{request_id}] Received request: {prompt}")
+    
+    try:
+        # Prepare the message for the MCP server
+        message = {
+            "message_id": f"simple-client-{request_id}",
+            "source_id": SERVICE_ID,
+            "content": {
+                "input": prompt
+            }
+        }
+        
+        # Send the message to the MCP server
+        logger.info(f"[{request_id}] Sending message to MCP server: {MCP_SERVER_URL}/mcp/message")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{MCP_SERVER_URL}/mcp/message",
+                json=message
+            )
+        
+        # Process the response
+        if response.status_code == 200:
+            result = response.json()
+            logger.info(f"[{request_id}] Received response from MCP server")
+            return {
+                "success": True,
+                "result": result,
+                "request_id": request_id
+            }
+        else:
+            error_text = response.text
+            logger.error(f"[{request_id}] Error from MCP server: {response.status_code} - {error_text}")
+            return {
+                "success": False,
+                "error": f"Server error: {response.status_code}",
+                "details": error_text,
+                "request_id": request_id
+            }
+    
+    except Exception as e:
+        logger.error(f"[{request_id}] Error sending request: {str(e)}")
+        return {
+            "success": False,
+            "error": "Failed to process request",
+            "details": str(e),
+            "request_id": request_id
+        }
+
+@app.get("/health", response_class=JSONResponse)
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "service": "simple-client"
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    host = os.getenv("SERVICE_HOST", "0.0.0.0")
+    port = int(os.getenv("SERVICE_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port)

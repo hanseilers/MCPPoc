@@ -3,6 +3,7 @@ import httpx
 import logging
 import uuid
 import json
+import datetime
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +30,15 @@ async def index():
     """Serve the main page."""
     with open("app/static/index.html", "r") as f:
         return f.read()
+
+@app.get("/debug", response_class=JSONResponse)
+async def debug():
+    """Debug endpoint to check if the code is updated."""
+    return {
+        "status": "updated",
+        "version": "1.0.1",
+        "timestamp": str(datetime.datetime.now())
+    }
 
 @app.post("/api/send", response_class=JSONResponse)
 async def send_request(prompt: str = Form(...)):
@@ -67,11 +77,29 @@ async def send_request(prompt: str = Form(...)):
         if response.status_code == 200:
             result = response.json()
             logger.info(f"[{request_id}] Received response from MCP server")
-            return {
-                "success": True,
-                "result": result,
-                "request_id": request_id
-            }
+
+            # Check if the response contains an error
+            if "response" in result and "error" in result["response"]:
+                # Extract the error from the response
+                error_message = result["response"]["error"]
+                error_details = result["response"]["details"] if "details" in result["response"] else ""
+
+                logger.warning(f"[{request_id}] Error in MCP server response: {error_message}")
+
+                # Return a consistent error format
+                return {
+                    "success": False,
+                    "error": error_message,
+                    "details": error_details,
+                    "request_id": request_id
+                }
+            else:
+                # Return the successful result
+                return {
+                    "success": True,
+                    "result": result,
+                    "request_id": request_id
+                }
         else:
             error_text = response.text
             logger.error(f"[{request_id}] Error from MCP server: {response.status_code} - {error_text}")

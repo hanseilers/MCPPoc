@@ -147,12 +147,10 @@
                     let displayText = '';
 
                     if (data.result && data.result.response && data.result.response.text) {
+                        // Display the text response
                         displayText = data.result.response.text;
-                    } else if (data.result && data.result.response && data.result.response.error) {
-                        // Handle error in response
-                        responseElement.className = 'response error';
-                        displayText = `Error: ${data.result.response.error}\n\nDetails: ${data.result.response.details || 'No details provided'}`;
                     } else if (data.result && typeof data.result === 'object') {
+                        // Display the JSON response
                         displayText = JSON.stringify(data.result, null, 2);
                     } else {
                         displayText = 'Received response but could not extract text.';
@@ -160,8 +158,24 @@
 
                     responseElement.textContent = displayText;
                 } else {
+                    // Handle error response
                     responseElement.className = 'response error';
-                    responseElement.textContent = `Error: ${data.error}\n\nDetails: ${data.details || 'No details provided'}`;
+
+                    // Create a user-friendly error message
+                    let errorMessage = data.error || 'Unknown error';
+                    let errorDetails = data.details || 'No details provided';
+
+                    // Format the error message
+                    if (errorMessage.toLowerCase().includes('failed to connect')) {
+                        errorMessage = 'Could not connect to the AI service. Please try again later.';
+                    } else if (errorMessage.toLowerCase().includes('timeout')) {
+                        errorMessage = 'The request took too long to process. Please try again with a simpler request.';
+                    }
+
+                    responseElement.textContent = `Error: ${errorMessage}\n\nDetails: ${errorDetails}`;
+
+                    // Log the error for debugging
+                    console.error('Error response:', data);
                 }
             } catch (error) {
                 // Make sure the response element is visible
